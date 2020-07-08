@@ -7,20 +7,15 @@ class ANN(nn.Module):
     def __init__(self, dims):
         super().__init__()
         tc.manual_seed(0)
-        self.layers = [nn.Linear(dims[i], dims[i+1]) for i in range(len(dims)-1)]
-        self.prs = []
-        for l in self.layers:
-            self.prs += l.parameters()
+        layers = []
+        for i in range(len(dims)-1):
+            layers.append( nn.Linear(dims[i], dims[i+1]) )
+            layers.append( nn.Sigmoid() if i<len(dims)-1 else nn.Softmax() )
+
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x):
-        next_layer = x
-        for l in self.layers:
-            a = l(next_layer)
-            next_layer = a.sigmoid()
-        return next_layer/next_layer.sum(-1).unsqueeze(-1)
-
-    def parameters(self):
-        return self.prs
+        return self.net(x)
 
 data, labels = make_blobs(n_samples=1000, centers=4, n_features=2, random_state=0)
 X_tr, X_v, Y_tr, Y_v = train_test_split(data, labels, stratify=labels, random_state=0)
