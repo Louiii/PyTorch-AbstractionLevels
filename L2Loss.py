@@ -2,7 +2,7 @@ from helpers import *
 
 class ANN(nn.Module):
     def __init__(self):
-        super().__init__()
+        super(ANN, self).__init__()
         tc.manual_seed(0)
         self.weights1 = nn.Parameter(tc.randn(2, 2)/np.sqrt(2))
         self.bias1 = nn.Parameter(tc.zeros(2))

@@ -5,7 +5,7 @@ V = lambda n : nn.Parameter(tc.zeros(n))
 
 class ANN(nn.Module):
     def __init__(self, dims):
-        super().__init__()
+        super(ANN, self).__init__()
         tc.manual_seed(0)
         self.Ws = [M(dims[i], dims[i+1]) for i in range(len(dims)-1)]
         self.bs = [V(dims[i]) for i in range(1, len(dims))]
