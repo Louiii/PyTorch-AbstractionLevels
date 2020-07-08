@@ -1,8 +1,5 @@
 from helpers import *
 
-M = lambda n, m : nn.Parameter(tc.randn(n, m)/np.sqrt(2))
-V = lambda n : nn.Parameter(tc.zeros(n))
-
 class ANN(nn.Module):
     def __init__(self, dims):
         super().__init__()
