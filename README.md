@@ -1,3 +1,4 @@
+
 # Simple Artificial Neural Network in PyTorch
 
 This repo contains five implementations of a neural network going from low to high levels of abstraction.
@@ -11,3 +12,8 @@ This repo contains five implementations of a neural network going from low to hi
 - **L4LossOptimLinear.py** is idential to L3LossOptim.py but with pre-defined Linear layer from torch.nn.
 
 - **L5Sequential.py** is idential to L4LossOptimLinear.py but with pre-defined sequential neural network from torch.nn.
+
+
+# Parameter Partitioner Program
+
+I wrote this program to provide helper functions to partition the parameters of large models. This is indended to be used when different parameter groups need different initialisation or optimisation.
