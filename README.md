@@ -1,6 +1,6 @@
 
 
-#Â Simple Artificial Neural Network in PyTorch
+# A Simple Artificial Neural Network in PyTorch
 
 This repo contains five implementations of a neural network going from low to high levels of abstraction.
 
