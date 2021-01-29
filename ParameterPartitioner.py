@@ -70,6 +70,12 @@ def multiple_partition(model, conditions, comb=None):
         return p
     return {''.join([str(xi) for xi in ix]): rec_tup(ix, partition) for ix in xs}
 
+def get_param_dict(model, partition, kwargs):
+    '''
+    '''
+    assert sorted(partition.keys())==sorted(kwargs.keys()), 'partition, opt_kwargs must have same keys'
+    return {pn: p for pn, p in model.named_parameters()}
+
 def optimisation_groups(model, partition, opt_kwargs):
     '''
     model: pytorch model; which subclasses nn.Module
@@ -77,9 +83,7 @@ def optimisation_groups(model, partition, opt_kwargs):
     opt_kwargs: dict; keys are types and values are optimiser kwargs
     returns list; each elem are dicts for each optimiser
     '''
-    assert sorted(partition.keys())==sorted(opt_kwargs.keys()), 'partition, opt_kwargs must have same keys'
-    
-    param_dict = {pn: p for pn, p in model.named_parameters()}
+    param_dict = get_param_dict(model, partition, opt_kwargs)
     optim_groups = []
 
     for type_, param_names in partition.items():
@@ -89,49 +93,89 @@ def optimisation_groups(model, partition, opt_kwargs):
 
     return optim_groups
 
+def apply_initialisation(model, init_kwargs, partition=None):
+    '''
+    two cases: (1) partition==None, else (2)
+    (1): Apply different init to different modules and weight and biases.
+         init_kwargs is a tuple, (weight_kwargs, bias_kwargs) this applies 
+         initialisation to modules indicated by the keys of weight_kwargs 
+         and keys of bias_kwargs. The values are an init fn and its argum-
+         ents and named arguments.
+    (2): Apply different init to different parameter names. 
+         init_kwargs is a dict with keys as the param name groups and val-
+         ues are init fn, its arguments and named arguments. partition is 
+         a dict with keys as the param name groups and values are a list 
+         of param names.
+    '''
+
+    if partition is not None:
+        param_dict = get_param_dict(model, partition, init_kwargs)
+
+        for type_, param_names in partition.items():
+            init_fn, args, kwargs = init_kwargs[type_]
+            for pn in sorted(list(param_names)):
+                init_fn(param_dict[pn], *args, **kwargs)
+    else:
+        w_kw, b_kw = init_kwargs
+        for m in model.modules():
+            key = str(m).split('(')[0] 
+            print(key)
+
+            if (key in w_kw or 'Default' in w_kw) and hasattr(m, 'weight') and m.weight is not None:
+                init_fn, args, kwargs = w_kw[key] if key in w_kw else w_kw['Default']
+                init_fn(m.weight, *args, **kwargs)
+
+            if (key in b_kw or 'Default' in b_kw) and hasattr(m, 'bias') and m.bias is not None:
+                init_fn, args, kwargs = b_kw[key] if key in b_kw else b_kw['Default']
+                init_fn(m.bias, *args, **kwargs)
 
 
 if __name__ == '__main__':
 
     class Block(nn.Module):
-        def __init__(self):
+        def __init__(self, emb, pos_dim):
             super().__init__()
-            self.conv = nn.Conv1d(16, 33, 3, stride=2)
-            self.deep_param = nn.Parameter(torch.zeros(1, 20, 10))
-            self.ln = nn.LayerNorm(10)
-            self.attn = nn.MultiheadAttention(10, 2)
+            self.conv = nn.Conv1d(4, 9, 3, stride=2)
+            self.deep_param = nn.Parameter(torch.zeros(1, pos_dim, emb))
+            self.ln = nn.LayerNorm(emb)
+            self.attn = nn.MultiheadAttention(emb, 2)
             self.mlp = nn.Sequential(
-                nn.Linear(10, 4 * 10),
+                nn.Linear(emb, 4 * emb),
                 nn.GELU(),
-                nn.Linear(4 * 10, 10),
+                nn.Linear(4 * emb, emb),
                 nn.Dropout(0.1),
             )
 
     class SubModel(nn.Module):
-        def __init__(self):
+        def __init__(self, n_tok, emb):
             super().__init__()
-            self.ln = nn.Linear(10, 53, bias=False)
+            self.ln = nn.Linear(emb, n_tok, bias=False)
 
     class SomeModel(nn.Module):
         def __init__(self):
             super().__init__()
-            self.tok_emb = nn.Embedding(53, 10)
-            self.pos_emb = nn.Parameter(torch.zeros(1, 20, 10))
+            emb = 4
+            n_tok = 6
+            pos_dim = 5
+            self.tok_emb = nn.Embedding(n_tok, emb)
+            self.pos_emb = nn.Parameter(torch.zeros(1, pos_dim, emb))
             self.drop = nn.Dropout(0.1)
-            self.blocks = nn.Sequential(*[Block() for _ in range(2)])
-            self.ln_f = nn.LayerNorm(10)
-            self.head = nn.Linear(10, 53, bias=False)
-            self.sub = SubModel()
+            self.blocks = nn.Sequential(*[Block(emb, pos_dim) for _ in range(2)])
+            self.ln_f = nn.LayerNorm(emb)
+            self.head = nn.Linear(emb, n_tok, bias=False)
+            self.sub = SubModel(n_tok, emb)
 
 
 
     model = SomeModel()
 
-
     conditions = ['attn', 'weight', 'mlp']
     '''
     partition the parameters in the model by the according to 
-    the conditions
+    the conditions, 
+    (1) whether it is a parameter in an attention module, 
+    (2) whether it is a weight parameter,
+    (3) whether it is a mlp parameter.
     '''
     partition = multiple_partition(model, conditions)
 
@@ -139,12 +183,13 @@ if __name__ == '__main__':
         print('\n'+k+'\n%s'%v)
 
     '''
-    same again, but now we can bucket the partition into groups
+    same again, but now we use the comb arg to bucket the 
+    partition into groups
     '''
 
-    combine = {'gr1':[[0,0,0],[1,0,0],[0,0,1],[1,0,1]],# combine all non weights
-               'gr2':[[0,1,0],[1,1,0]],# weight and not mlp
-               'gr3': None}
+    combine = {'non-weights':[[0,0,0],[1,0,0],[0,0,1],[1,0,1]],# combine all non weights
+               'non-mlp weights':[[0,1,0],[1,1,0]],# weight and not mlp
+               'other': None}
 
     partition = multiple_partition(model, conditions, comb=combine)
 
@@ -157,10 +202,44 @@ if __name__ == '__main__':
     '''
 
     # e.g. split by weight/bias
-    typ_opt_kwargs = {'gr1': {"weight_decay": 0.1},
-                      'gr2':   {"weight_decay": 0.0},
-                      'gr3':   {}}
+    typ_opt_kwargs = {'non-weights': {"weight_decay": 0.1},
+                      'non-mlp weights':   {"weight_decay": 0.0},
+                      'other':   {}}
     opt_groups = optimisation_groups(model, partition, typ_opt_kwargs)
+
+
+    '''====================================================================='''
+    print('\n\napplying different initialisation to different parameters by name\n')
+
+    conditions = ['ln', 'weight', 'mlp']
+    combine = {'layer-norm weight':[[1,1,0],[1,1,1]],
+               'non-weight':[[0,0,0],[1,0,0],[0,0,1],[1,0,1]],
+               'other':None}
+    partition = multiple_partition(model, conditions, comb=combine)
+
+    init_kwargs = {'layer-norm weight':(nn.init.constant_, [1], {}),
+                   'non-weight':(nn.init.constant_, [0], {}),
+                   'other':(nn.init.normal_, [], {'mean':0, 'std':0.02})}
+    apply_initialisation(model, init_kwargs, partition)
+
+
+    [print('\n'+k+'\n%s'%v) for k, v in partition.items()]
+    [print('\n\n%s:\n%s'%(pn, str(p))) for pn, p in model.named_parameters()]
+
+    '''====================================================================='''
+    print('\n\napplying different initialisation to different modules by class\n')
+    
+    print([str(m).split('(')[0] for m in model.modules()])
+
+    weight_kwargs = {'Embedding':(nn.init.normal_, [], {'mean':0, 'std':0.02}),
+                     'Linear':(nn.init.normal_, [], {'mean':0, 'std':0.02}),
+                     'LayerNorm':(nn.init.constant_, [1], {})}
+    bias_kwargs =   {'Default':(nn.init.constant_, [0], {})}
+    apply_initialisation(model, (weight_kwargs, bias_kwargs))
+
+    [print('\n'+k+'\n%s'%v) for k, v in partition.items()]
+    [print('\n\n%s:\n%s'%(pn, str(p))) for pn, p in model.named_parameters()]
+
 
 
 
